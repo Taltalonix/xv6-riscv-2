@@ -1,3 +1,5 @@
+#ifndef PROC
+#define PROC
 #include "kthread.h"
 
 // // Saved registers for kernel context switches.
@@ -33,7 +35,7 @@ struct proc
 {
   struct spinlock lock;
   int counter;
-  struct spinlock counter_lock;
+  struct spinlock tid_lock;
   // p->lock must be held when using these:
   enum procstate state; // Process state
   int killed;           // If non-zero, have been killed
@@ -53,3 +55,4 @@ struct proc
   struct inode *cwd;          // Current directory
   char name[16];              // Process name (debugging)
 };
+#endif
