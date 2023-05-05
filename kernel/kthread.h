@@ -72,7 +72,7 @@ struct context
   uint64 s11;
 };
 // Per-CPU state.
-//task 2 
+// task 2
 struct cpu
 {
   struct kthread *kthread; // The thread running on this cpu, or null.
@@ -96,7 +96,7 @@ enum threadstate
 struct kthread
 {
   // task 5.1
-  struct spinlock lock;
+  struct spinlock t_lock;
   enum threadstate state;
   void *chan;                  // If non-zero, sleeping on chan
   int killed;                  // If non-zero, have been killed
