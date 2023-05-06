@@ -5,24 +5,19 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "kthread.h"
 
 extern struct proc proc[NPROC];
-struct spinlock tid_lock;
-extern void forkret(void);
+
 void kthreadinit(struct proc *p)
 {
-
-  struct kthread *thread;
-  initlock(&tid_lock, "nexttid");
+  // initlock(&p->tid_lock, "nexttid");
   for (struct kthread *kt = p->kthread; kt < &p->kthread[NKT]; kt++)
   {
-    initlock(&kt->lock, "threadlock");
-    // todo: check if need to aquire locks : wait lock → proc lock → thread lock
-    //  do i need to add wait_lock obj to this file as in proc.c
-    acquire(&kt->lock);
-    kt->state = UNUSED;
+    initlock(&kt->t_lock, "threadlock");
+    // acquire(&kt->lock);
+    kt->state = T_UNUSED;
     kt->parent = p;
-    release(&kt->lock);
 
     // WARNING: Don't change this line!
     // get the pointer to the kernel stack of the kthread
@@ -32,8 +27,11 @@ void kthreadinit(struct proc *p)
 
 struct kthread *mykthread()
 {
-  return &mycpu()->kthread;
-  // return &myproc()->kthread[0];
+  push_off();
+  struct cpu *c = mycpu();
+  struct kthread *mythread = c->kthread;
+  pop_off();
+  return mythread;
 }
 
 struct trapframe *get_kthread_trapframe(struct proc *p, struct kthread *kt)
@@ -51,54 +49,71 @@ struct trapframe *get_kthread_trapframe(struct proc *p, struct kthread *kt)
 int alloctid(struct proc *p)
 {
   int tid;
-  // todo : check which lock to lock hear
-  // aquire(&p->lock);
-  acquire(&p->counter_lock);
-  acquire(&tid_lock);
+  acquire(&p->tid_lock);
   tid = p->counter;
   p->counter++;
-  release(&tid_lock);
-  release(&p->counter_lock);
-  // release(&p->lock);
+  release(&p->tid_lock);
   return tid;
 }
 
-static struct kthread *allockthread(struct proc *p)
+struct kthread *allockthread(struct proc *p)
 {
   struct kthread *t;
   // acquire(&p->lock); - check if the lock is allready aquired in allocproc
-  for (int i = 0; i < NKT; i++)
+  for (t = p->kthread; t < &p->kthread[NKT]; t++)
   {
-    if (p->kthread[i].state == UNUSED)
+    acquire(&t->t_lock);
+    if (t->state == T_UNUSED)
     {
       t->tid = alloctid(p);
-      t->state = USED;
+      t->state = T_USED;
       t->trapframe = get_kthread_trapframe(p, t);
       memset(&t->context, 0, sizeof(t->context));
       t->context.ra = (uint64)forkret;
-      t->context.sp = p->kthread->kstack + PGSIZE;
-      // p->kthread->trapframe = get_kthread_trapframe(p, p->kthread);
-      // t->trapframe = get_kthread_trapframe(p, t);
-      acquire(&t->lock);
+      t->context.sp = t->kstack + PGSIZE;
       return t;
     }
+    else
+    {
+      release(&t->t_lock);
+      release(&p->lock);
+    }
   }
+  return 0;
 }
-
-static void freekthread(struct kthread *t)
+// A fork child's very first scheduling by scheduler()
+// will swtch to forkret.
+void forkret(void)
 {
-  if (t->trapframe)
+  static int first = 1;
+  struct kthread *t = mykthread();
+  // struct cpu *c = mycpu();
+  struct proc *p = myproc();
+  // Still holding p->lock from scheduler.
+  release(&t->t_lock);
+  if (holding(&p->lock))
+    release(&p->lock);
+  // release(&myproc()->lock);
+  if (first)
   {
+    // File system initialization must be run in the context of a
+    // regular process (e.g., because it calls sleep), and thus cannot
+    // be run from main().
+    first = 0;
+    fsinit(ROOTDEV);
+  }
 
-    kfree((void *)t->trapframe);
-    // todo - check if we need to free the context
-    t->trapframe = 0;
+  usertrapret();
+}
+void freekthread(struct kthread *t)
+{
+  if (t != 0)
+  {
+    t->tid = 0;
     t->chan = 0;
     t->killed = 0;
-    t->kstack = 0;
-    t->parent = 0;
-    t->tid = 0;
     t->xstate = 0;
-    t->state = UNUSED;
+    t->trapframe = 0;
+    t->state = T_UNUSED;
   }
 }

@@ -1,4 +1,5 @@
-
+#ifndef KTHREAD
+#define KTHREAD
 // per-process data for the trap handling code in trampoline.S.
 // sits in a page by itself just under the trampoline page in the
 // user page table. not specially mapped in the kernel page table.
@@ -71,6 +72,7 @@ struct context
   uint64 s11;
 };
 // Per-CPU state.
+// task 2
 struct cpu
 {
   struct kthread *kthread; // The thread running on this cpu, or null.
@@ -83,18 +85,18 @@ extern struct cpu cpus[NCPU];
 
 enum threadstate
 {
-  UNUSED,
-  USED,
-  SLEEPING,
-  RUNNABLE,
-  RUNNING,
-  ZOMBIE
+  T_UNUSED,
+  T_USED,
+  T_SLEEPING,
+  T_RUNNABLE,
+  T_RUNNING,
+  T_ZOMBIE
 };
 
 struct kthread
 {
   // task 5.1
-  struct spinlock lock;
+  struct spinlock t_lock;
   enum threadstate state;
   void *chan;                  // If non-zero, sleeping on chan
   int killed;                  // If non-zero, have been killed
@@ -105,3 +107,4 @@ struct kthread
   struct context context;      // swtch() here to run process
   struct trapframe *trapframe; // data page for trampoline.S
 };
+#endif
