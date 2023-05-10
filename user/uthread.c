@@ -104,6 +104,7 @@ int get_max_runnable_priority(void)
     int found_runable = 0;
     int first_index = get_first_index(&found_runable);
     // DEBUG_print_separator();
+    // DEBUG_print_threads();
     // printf("[DEBUG] first_index: %d\n", first_index);
     // printf("[DEBUG] found_runable: %d\n", found_runable);
     // DEBUG_print_separator();
@@ -123,6 +124,11 @@ int get_max_runnable_priority(void)
             round_flags[i] = 0;
         }
         first_index = get_first_index(&found_runable);
+
+        if (first_index != -1) // This "if" might be unnecessary
+        {
+            round_flags[first_index] = 1;
+        }
         // DEBUG_print_threads();
         // printf("[DEBUG] Returning index: %d\n", first_index);
         // DEBUG_print_separator();
@@ -147,7 +153,7 @@ int uthread_create(void (*start_func)(), enum sched_priority priority)
             cthread->priority = priority;
             memset(&cthread->context, 0, sizeof(cthread->context));
             // set the stack pointer to the top of the stack
-            cthread->context.sp = (uint64)(cthread->ustack +STACK_SIZE);
+            cthread->context.sp = (uint64)(cthread->ustack + STACK_SIZE);
 
             // set the return address to the thread exit function
             cthread->context.ra = (uint64)start_func;
@@ -164,50 +170,51 @@ int uthread_create(void (*start_func)(), enum sched_priority priority)
     return -1; // failure
 }
 
+void switch_thread(int index)
+{
+    // Switch thread
+    struct uthread *old_thread = current_thread;
+    struct uthread *next_thread = &threads[index];
+    next_thread->state = RUNNING;
+
+    current_thread = next_thread;
+    uswtch(&old_thread->context, &next_thread->context);
+}
+
 void uthread_yield()
 {
+    int next_thread_index;
 
-    // find the next highest priority runnable thread
-    struct uthread *next_thread;
     current_thread->state = RUNNABLE;
-    next_thread = &threads[get_max_runnable_priority()];
-    // save the current thread's context and switch to the next thread
-    next_thread->state = RUNNING;
-    current_thread = next_thread;
-    uswtch(&current_thread->context, &next_thread->context);
+    // DEBUG_print_threads();
+    next_thread_index = get_max_runnable_priority();
+
+    switch_thread(next_thread_index);
 }
 
 void uthread_exit()
 {
-    current_thread->state = FREE; // Mark the current thread as free
-    struct uthread *tmp;
-    int pos = get_max_runnable_priority();
-    if (pos != -1)
+    int next_thread_index;
+
+    current_thread->state = FREE;
+    next_thread_index = get_max_runnable_priority();
+    if (next_thread_index == -1)
     {
-        struct uthread *thread_to_run = &threads[pos];
-        tmp = current_thread;
-        current_thread = thread_to_run;
-        thread_to_run->state = RUNNING;
-        tmp->state = FREE;
-        uswtch(&tmp->context, &thread_to_run->context);
+        exit(0);
     }
-    exit(0); // If no other running thread found, exit the process
+    switch_thread(next_thread_index);
 }
 
 int uthread_start_all()
 {
-    printf("[DEBUG] Starting All...\n");
-    // DEBUG_print_threads();
+    int next_thread_index;
     if (is_first_time)
     {
-        struct uthread *run;
-        int pos = get_max_runnable_priority();
-        if (pos != -1)
+        next_thread_index = get_max_runnable_priority();
+        if (next_thread_index != -1)
         {
-            run = &threads[pos];
-            run->state = RUNNING;
             is_first_time = 0;
-            uswtch(&current_thread->context, &run->context);
+            switch_thread(next_thread_index);
         }
     }
     // if reached to hear this is an error

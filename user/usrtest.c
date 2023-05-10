@@ -15,27 +15,32 @@ void test1()
 {
     for (int i = 0; i < 3; i++)
     {
-        printf("T1: %d\n", i);
+        printf("[INFO] T1: %d\n", i);
         uthread_yield();
     }
+    printf("[INFO] T1 END\n");
+
     uthread_exit();
 }
 void test2()
 {
     for (int i = 0; i < 3; i++)
     {
-        printf("T2s: %d\n", i);
+        printf("[INFO] T2: %d\n", i);
         uthread_yield();
     }
+    printf("[INFO] T2 END\n");
     uthread_exit();
 }
 void test3()
 {
     for (int i = 0; i < 3; i++)
     {
-        printf("T3: %d\n", i);
+        printf("[INFO] T3: %d\n", i);
         uthread_yield();
     }
+    printf("[INFO] T3 END\n");
+
     uthread_exit();
 }
 
