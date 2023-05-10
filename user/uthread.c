@@ -11,10 +11,9 @@
 #include "kernel/types.h"
 #include "uthread.h"
 
-// TODO: Check if the thread array table should be handled here (practical sessions say it should be in kernel)
 struct uthread threads[MAX_UTHREADS]; // array of all threads
 struct uthread *current_thread;
-int nums[MAX_UTHREADS]; // index of currently running thread
+int round_flags[MAX_UTHREADS]; // index of currently running thread
 // Global array to keep track of the state of each thread
 // static enum tstate thread_states[MAX_UTHREADS];
 
@@ -24,140 +23,140 @@ int nums[MAX_UTHREADS]; // index of currently running thread
 // // Global array to store the priority of each thread
 // static enum sched_priority thread_priorities[MAX_UTHREADS];
 
-static int firstTime = 1;
-static int firstInit = 1;
+static int is_first_time = 1;
+static int is_first_init = 1;
 
-void initTable(void)
+// ---------------------------------- DEBUG START ----------------------------------
+void DEBUG_print_separator()
 {
-    if (firstInit)
+    printf("[DEBUG] ----------------------------------------------------------------\n");
+}
+
+void DEBUG_print_thread(struct uthread *t, int index)
+{
+    printf("\t{ State: %s, Priority: %d, RoundFlag: %d }",
+           t->state == RUNNING
+               ? "RUNNING"
+           : t->state == RUNNABLE
+               ? "RUNNABLE"
+               : "FREE",
+           t->priority,
+           round_flags[index]);
+}
+void DEBUG_print_threads()
+{
+    int i;
+    printf("[DEBUG] Thread Table: [\n");
+    for (i = 0; i < MAX_UTHREADS; i++)
+    {
+        DEBUG_print_thread(&threads[i], i);
+        if (i < MAX_UTHREADS - 1)
+        {
+            printf(",");
+        }
+        printf("\n");
+    }
+    printf("]\n\n");
+}
+// ---------------------------------- DEBUG END ----------------------------------
+
+void init_table(void)
+{
+    if (is_first_init)
     {
         for (int i = 0; i < MAX_UTHREADS; i++)
         {
             threads[i].state = FREE;
-            nums[i] = 0;
+            round_flags[i] = 0;
         }
         current_thread = malloc(sizeof(threads));
-        firstInit = 0;
+        is_first_init = 0;
     }
 }
-int getMinRunnablePriority(int priority)
+int get_first_index(int *found_runnable)
 {
-    int min = 1000000;
-    int idx = -1;
-    for (int i = 0; i < MAX_UTHREADS; i++)
+    int first_index = -1;
+
+    struct uthread *ithread;
+    *found_runnable = 0;
+    int i;
+    for (i = 0; i < MAX_UTHREADS; i++)
     {
-        if (threads[i].state == RUNNABLE && threads[i].priority == priority && nums[i] < min)
+        ithread = &threads[i];
+        if (ithread->state == RUNNABLE)
         {
-            min = nums[i];
-            idx = i;
-        }
-    }
-    return idx;
-}
-int getMaxPriority(void)
-{
-    int med = 0;
-    for (int i = 0; i < MAX_UTHREADS; i++)
-    {
-        if (threads[i].state == RUNNABLE)
-        {
-            if (threads[i].priority == HIGH)
+            *found_runnable = 1;
+            if (!round_flags[i] && (first_index == -1 || ithread->priority > threads[first_index].priority))
             {
-                return 2;
-            }
-            if (threads[i].priority == MEDIUM)
-            {
-                med = 1;
+                first_index = i;
+
+                // No need to continue
+                // if(first_priority == HIGH) {
+                //     break;
+                // }
             }
         }
     }
-    return med;
+    return first_index;
 }
-int getMaxRunnablePriority(void)
+int get_max_runnable_priority(void)
 {
-    int maxPriority = getMaxPriority();
-    int pos = -1;
-    switch (maxPriority)
+    int found_runable = 0;
+    int first_index = get_first_index(&found_runable);
+    // DEBUG_print_separator();
+    // printf("[DEBUG] first_index: %d\n", first_index);
+    // printf("[DEBUG] found_runable: %d\n", found_runable);
+    // DEBUG_print_separator();
+    int i;
+
+    if (first_index != -1)
     {
-    case 0:
-        pos = getMinRunnablePriority(0);
-        if (pos == -1)
-        {
-            return pos;
-        }
-        nums[pos]++;
-        return pos;
-        break;
-    case 1:
-        pos = getMinRunnablePriority(1);
-        if (pos == -1)
-        {
-            return pos;
-        }
-        nums[pos]++;
-        return pos;
-        break;
-    case 2:
-        pos = getMinRunnablePriority(2);
-        if (pos == -1)
-        {
-            return pos;
-        }
-        nums[pos]++;
-        return pos;
-        break;
-    default:
-        return pos;
-        break;
+        round_flags[first_index] = 1;
     }
-    // int pos = -1;
-    // int med = 0;
-    // int i;
-    // for (i = 0; i < MAX_UTHREADS; i++)
-    // {
-    //     if (threads[i].state == RUNNABLE)
-    //     {
-    //         if (threads[i].priority == HIGH)
-    //         {
-    //             return i;
-    //         }
-    //         else if (threads[i].priority == MEDIUM)
-    //         {
-    //             med = 1;
-    //             pos = i;
-    //         }
-    //         else if (!med && threads[i].priority == LOW)
-    //         {
-    //             pos = i;
-    //         }
-    //     }
-    // }
-    // return pos;
+    if (found_runable && first_index == -1 /* Round Over, restart */)
+    {
+        // DEBUG_print_separator();
+        // DEBUG_print_separator();
+        // DEBUG_print_threads();
+        for (i = 0; i < MAX_UTHREADS; i++)
+        {
+            round_flags[i] = 0;
+        }
+        first_index = get_first_index(&found_runable);
+        // DEBUG_print_threads();
+        // printf("[DEBUG] Returning index: %d\n", first_index);
+        // DEBUG_print_separator();
+        // DEBUG_print_separator();
+    }
+
+    return first_index;
 }
 
 int uthread_create(void (*start_func)(), enum sched_priority priority)
 {
 
     int i;
-    initTable();
+    struct uthread *cthread;
+    init_table();
     for (i = 0; i < MAX_UTHREADS; i++)
     {
-        if (threads[i].state == FREE)
+        cthread = &threads[i];
+        if (cthread->state == FREE)
         {
             // initialize the new thread
-            threads[i].priority = priority;
-            memset(&threads[i].context, 0, sizeof(threads[i].context));
+            cthread->priority = priority;
+            memset(&cthread->context, 0, sizeof(cthread->context));
             // set the stack pointer to the top of the stack
-            threads[i].context.sp = (uint64)&threads[i].ustack[STACK_SIZE];
+            cthread->context.sp = (uint64)(cthread->ustack +STACK_SIZE);
 
             // set the return address to the thread exit function
-            threads[i].context.ra = (uint64)start_func;
+            cthread->context.ra = (uint64)start_func;
 
             // set the start function as the next instruction to be executed
             // threads[i].context.sp -= sizeof(uint64);
             // *((uint64 *)threads[i].context.sp) = (uint64)start_func;
 
-            threads[i].state = RUNNABLE;
+            cthread->state = RUNNABLE;
 
             return 0; // success
         }
@@ -169,20 +168,20 @@ void uthread_yield()
 {
 
     // find the next highest priority runnable thread
-    struct uthread *run;
+    struct uthread *next_thread;
     current_thread->state = RUNNABLE;
-    run = &threads[getMaxRunnablePriority()];
+    next_thread = &threads[get_max_runnable_priority()];
     // save the current thread's context and switch to the next thread
-    run->state = RUNNING;
-    current_thread = run;
-    uswtch(&current_thread->context, &run->context);
+    next_thread->state = RUNNING;
+    current_thread = next_thread;
+    uswtch(&current_thread->context, &next_thread->context);
 }
 
 void uthread_exit()
 {
     current_thread->state = FREE; // Mark the current thread as free
     struct uthread *tmp;
-    int pos = getMaxRunnablePriority();
+    int pos = get_max_runnable_priority();
     if (pos != -1)
     {
         struct uthread *thread_to_run = &threads[pos];
@@ -197,15 +196,17 @@ void uthread_exit()
 
 int uthread_start_all()
 {
-    if (firstTime)
+    printf("[DEBUG] Starting All...\n");
+    // DEBUG_print_threads();
+    if (is_first_time)
     {
         struct uthread *run;
-        int pos = getMaxRunnablePriority();
+        int pos = get_max_runnable_priority();
         if (pos != -1)
         {
             run = &threads[pos];
             run->state = RUNNING;
-            firstTime = 0;
+            is_first_time = 0;
             uswtch(&current_thread->context, &run->context);
         }
     }
@@ -227,6 +228,6 @@ enum sched_priority uthread_get_priority()
 
 struct uthread *uthread_self()
 {
-    // todo - Check if this is the intention
+    // TOOD: Check if this is the intention
     return current_thread;
 }

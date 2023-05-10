@@ -15,7 +15,7 @@ void test1()
 {
     for (int i = 0; i < 3; i++)
     {
-        printf("the i is: %d of test 1.\n", i);
+        printf("T1: %d\n", i);
         uthread_yield();
     }
     uthread_exit();
@@ -24,7 +24,7 @@ void test2()
 {
     for (int i = 0; i < 3; i++)
     {
-        printf("the i is: %d of test 2.\n", i);
+        printf("T2s: %d\n", i);
         uthread_yield();
     }
     uthread_exit();
@@ -33,7 +33,7 @@ void test3()
 {
     for (int i = 0; i < 3; i++)
     {
-        printf("the i is: %d of test 3.\n", i);
+        printf("T3: %d\n", i);
         uthread_yield();
     }
     uthread_exit();
