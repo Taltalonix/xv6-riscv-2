@@ -5,6 +5,7 @@
 #include "memlayout.h"
 #include "spinlock.h"
 #include "proc.h"
+#include "kthread.h"
 
 uint64
 sys_exit(void)
@@ -12,7 +13,7 @@ sys_exit(void)
   int n;
   argint(0, &n);
   exit(n);
-  return 0;  // not reached
+  return 0; // not reached
 }
 
 uint64
@@ -43,7 +44,7 @@ sys_sbrk(void)
 
   argint(0, &n);
   addr = myproc()->sz;
-  if(growproc(n) < 0)
+  if (growproc(n) < 0)
     return -1;
   return addr;
 }
@@ -57,8 +58,10 @@ sys_sleep(void)
   argint(0, &n);
   acquire(&tickslock);
   ticks0 = ticks;
-  while(ticks - ticks0 < n){
-    if(killed(myproc())){
+  while (ticks - ticks0 < n)
+  {
+    if (killed(myproc()))
+    {
       release(&tickslock);
       return -1;
     }
@@ -88,4 +91,56 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+
+// Kernel Thread calls
+uint64
+sys_kthread_create(void)
+{
+  void *start_func;
+  void *stack;
+  uint stack_size;
+
+  argaddr(0, (uint64 *)&start_func);
+  argaddr(1, (uint64 *)&stack);
+  argint(2, (int *)&stack_size);
+
+  return (uint64)kthread_create(start_func, stack, stack_size);
+}
+
+uint64
+sys_kthread_id(void)
+{
+  return (uint64)kthread_id();
+}
+
+uint64
+sys_kthread_kill(void)
+{
+  int ktid;
+  argint(0, &ktid);
+
+  return (uint64)kthread_kill(ktid);
+}
+
+uint64
+sys_kthread_exit(void)
+{
+  int status;
+  argint(0, &status);
+
+  kthread_exit(status);
+
+  return 0; // not reached
+}
+
+uint64
+sys_kthread_join(void)
+{
+  int ktid;
+  int *status;
+
+  argint(0, &ktid);
+  argaddr(1, (uint64 *)&status);
+  return (uint64)kthread_join(ktid, status);
 }
