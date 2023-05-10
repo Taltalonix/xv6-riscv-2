@@ -1,82 +1,168 @@
-#include "types.h"
+#include "kernel/param.h"
+#include "kernel/types.h"
+#include "kernel/stat.h"
+#include "user/user.h"
+#include "kernel/fs.h"
+#include "kernel/fcntl.h"
+#include "kernel/syscall.h"
+#include "kernel/memlayout.h"
+#include "kernel/riscv.h"
+#include "kernel/param.h"
+#include "kernel/types.h"
 #include "uthread.h"
 
-// TODO: Check if the thread array table should be handled here (practical sessions say it should be in kernel)
 struct uthread threads[MAX_UTHREADS]; // array of all threads
-struct uthread *current_thread;       // index of currently running thread
-
+struct uthread *current_thread;
+int round_flags[MAX_UTHREADS]; // index of currently running thread
 // Global array to keep track of the state of each thread
-static enum tstate thread_states[MAX_UTHREADS];
+// static enum tstate thread_states[MAX_UTHREADS];
 
-// Global array to store the context of each thread
-static struct context thread_contexts[MAX_UTHREADS];
+// // Global array to store the context of each thread
+// static struct context thread_contexts[MAX_UTHREADS];
 
-// Global array to store the priority of each thread
-static enum sched_priority thread_priorities[MAX_UTHREADS];
+// // Global array to store the priority of each thread
+// static enum sched_priority thread_priorities[MAX_UTHREADS];
 
-static int firstTime = 1;
+static int is_first_time = 1;
+static int is_first_init = 1;
 
-void initTable(void)
+// ---------------------------------- DEBUG START ----------------------------------
+void DEBUG_print_separator()
 {
-    if (firstTime)
+    printf("[DEBUG] ----------------------------------------------------------------\n");
+}
+
+void DEBUG_print_thread(struct uthread *t, int index)
+{
+    printf("\t{ State: %s, Priority: %d, RoundFlag: %d }",
+           t->state == RUNNING
+               ? "RUNNING"
+           : t->state == RUNNABLE
+               ? "RUNNABLE"
+               : "FREE",
+           t->priority,
+           round_flags[index]);
+}
+void DEBUG_print_threads()
+{
+    int i;
+    printf("[DEBUG] Thread Table: [\n");
+    for (i = 0; i < MAX_UTHREADS; i++)
+    {
+        DEBUG_print_thread(&threads[i], i);
+        if (i < MAX_UTHREADS - 1)
+        {
+            printf(",");
+        }
+        printf("\n");
+    }
+    printf("]\n\n");
+}
+// ---------------------------------- DEBUG END ----------------------------------
+
+void init_table(void)
+{
+    if (is_first_init)
     {
         for (int i = 0; i < MAX_UTHREADS; i++)
         {
             threads[i].state = FREE;
+            round_flags[i] = 0;
         }
         current_thread = malloc(sizeof(threads));
-        firstTime = 0;
+        is_first_init = 0;
     }
 }
-int getMaxRunnablePriority(void)
+int get_first_index(int *found_runnable)
 {
-    int pos = -1;
-    int med, i;
+    int first_index = -1;
+
+    struct uthread *ithread;
+    *found_runnable = 0;
+    int i;
     for (i = 0; i < MAX_UTHREADS; i++)
     {
-        if (threads[i].state == RUNNABLE && &threads[i] != current_thread)
+        ithread = &threads[i];
+        if (ithread->state == RUNNABLE)
         {
-            if (threads[i].priority == HIGH)
+            *found_runnable = 1;
+            if (!round_flags[i] && (first_index == -1 || ithread->priority > threads[first_index].priority))
             {
-                return i;
-            }
-            else if (threads[i].priority == MEDIUM)
-            {
-                med = 1;
-                pos = i;
-            }
-            if (!med)
-            {
-                pos = i;
+                first_index = i;
+
+                // No need to continue
+                // if(first_priority == HIGH) {
+                //     break;
+                // }
             }
         }
     }
-    return pos;
+    return first_index;
+}
+int get_max_runnable_priority(void)
+{
+    int found_runable = 0;
+    int first_index = get_first_index(&found_runable);
+    // DEBUG_print_separator();
+    // DEBUG_print_threads();
+    // printf("[DEBUG] first_index: %d\n", first_index);
+    // printf("[DEBUG] found_runable: %d\n", found_runable);
+    // DEBUG_print_separator();
+    int i;
+
+    if (first_index != -1)
+    {
+        round_flags[first_index] = 1;
+    }
+    if (found_runable && first_index == -1 /* Round Over, restart */)
+    {
+        // DEBUG_print_separator();
+        // DEBUG_print_separator();
+        // DEBUG_print_threads();
+        for (i = 0; i < MAX_UTHREADS; i++)
+        {
+            round_flags[i] = 0;
+        }
+        first_index = get_first_index(&found_runable);
+
+        if (first_index != -1) // This "if" might be unnecessary
+        {
+            round_flags[first_index] = 1;
+        }
+        // DEBUG_print_threads();
+        // printf("[DEBUG] Returning index: %d\n", first_index);
+        // DEBUG_print_separator();
+        // DEBUG_print_separator();
+    }
+
+    return first_index;
 }
 
 int uthread_create(void (*start_func)(), enum sched_priority priority)
 {
 
     int i;
-    initTable();
+    struct uthread *cthread;
+    init_table();
     for (i = 0; i < MAX_UTHREADS; i++)
     {
-        if (threads[i].state == FREE)
+        cthread = &threads[i];
+        if (cthread->state == FREE)
         {
             // initialize the new thread
-            threads[i].priority = priority;
-
+            cthread->priority = priority;
+            memset(&cthread->context, 0, sizeof(cthread->context));
             // set the stack pointer to the top of the stack
-            threads[i].context.sp = (uint64)&threads[i].ustack[STACK_SIZE];
+            cthread->context.sp = (uint64)(cthread->ustack + STACK_SIZE);
 
             // set the return address to the thread exit function
-            threads[i].context.ra = (uint64)&uthread_exit;
+            cthread->context.ra = (uint64)start_func;
 
             // set the start function as the next instruction to be executed
-            threads[i].context.sp -= sizeof(uint64);
-            *((uint64 *)threads[i].context.sp) = (uint64)start_func;
+            // threads[i].context.sp -= sizeof(uint64);
+            // *((uint64 *)threads[i].context.sp) = (uint64)start_func;
 
-            threads[i].state = RUNNABLE;
+            cthread->state = RUNNABLE;
 
             return 0; // success
         }
@@ -84,62 +170,52 @@ int uthread_create(void (*start_func)(), enum sched_priority priority)
     return -1; // failure
 }
 
+void switch_thread(int index)
+{
+    // Switch thread
+    struct uthread *old_thread = current_thread;
+    struct uthread *next_thread = &threads[index];
+    next_thread->state = RUNNING;
+
+    current_thread = next_thread;
+    uswtch(&old_thread->context, &next_thread->context);
+}
+
 void uthread_yield()
 {
+    int next_thread_index;
 
-    // find the next highest priority runnable thread
-    struct uthread *run;
-    // struct uthread *next_thread;
-    //  int max_priority = 0;
-    //  for (next_thread = threads; next_thread < &threads[MAX_UTHREADS]; next_thread++)
-    //  {
+    current_thread->state = RUNNABLE;
+    // DEBUG_print_threads();
+    next_thread_index = get_max_runnable_priority();
 
-    //     if (next_thread != -1 && next_thread != current_thread && next_thread->priority >= max_priority && next_thread->state == RUNNABLE)
-    //     {
-    //         run = next_thread;
-    //         max_priority = next_thread->priority;
-    //     }
-    // }
-    run = &threads[getMaxRunnablePriority()];
-    // save the current thread's context and switch to the next thread
-    run->state == RUNNING;
-    current_thread = run;
-    uswtch(&current_thread->context, &run->context);
+    switch_thread(next_thread_index);
 }
 
 void uthread_exit()
 {
-    current_thread->state = FREE; // Mark the current thread as free
-    struct uthread *tmp;
-    int pos = getMaxRunnablePriority();
-    if (pos != -1)
+    int next_thread_index;
+
+    current_thread->state = FREE;
+    next_thread_index = get_max_runnable_priority();
+    if (next_thread_index == -1)
     {
-        struct uthread *thread_to_run = &threads[pos];
-        // for (i = 0; i < MAX_UTHREADS; i++)
-        // {
-        //     if (thread_states[i] == RUNNING)
-        //     {
-        //         // Find another running thread
-        //         current_thread = i;
-        //         uswtch(&thread_contexts[i], 0); // Switch to the new thread
-        //     }
-        // }
-        tmp = current_thread;
-        current_thread = thread_to_run;
-        thread_to_run->state = RUNNING;
-        uswtch(&tmp->context, &thread_to_run->context);
+        exit(0);
     }
-    exit(0); // If no other running thread found, exit the process
+    switch_thread(next_thread_index);
 }
 
 int uthread_start_all()
 {
-    firstTime = 1;
-    if (firstTime)
+    int next_thread_index;
+    if (is_first_time)
     {
-        uthread_yield();
-        firstTime = 0;
-        return -1;
+        next_thread_index = get_max_runnable_priority();
+        if (next_thread_index != -1)
+        {
+            is_first_time = 0;
+            switch_thread(next_thread_index);
+        }
     }
     // if reached to hear this is an error
     return -1;
@@ -159,6 +235,6 @@ enum sched_priority uthread_get_priority()
 
 struct uthread *uthread_self()
 {
-    // todo - Check if this is the intention
+    // TOOD: Check if this is the intention
     return current_thread;
 }
