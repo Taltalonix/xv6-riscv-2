@@ -1,57 +1,138 @@
-#include "types.h"
+#include "kernel/param.h"
+#include "kernel/types.h"
+#include "kernel/stat.h"
+#include "user/user.h"
+#include "kernel/fs.h"
+#include "kernel/fcntl.h"
+#include "kernel/syscall.h"
+#include "kernel/memlayout.h"
+#include "kernel/riscv.h"
+#include "kernel/param.h"
+#include "kernel/types.h"
 #include "uthread.h"
 
 // TODO: Check if the thread array table should be handled here (practical sessions say it should be in kernel)
 struct uthread threads[MAX_UTHREADS]; // array of all threads
-struct uthread *current_thread;       // index of currently running thread
-
+struct uthread *current_thread;
+int nums[MAX_UTHREADS]; // index of currently running thread
 // Global array to keep track of the state of each thread
-static enum tstate thread_states[MAX_UTHREADS];
+// static enum tstate thread_states[MAX_UTHREADS];
 
-// Global array to store the context of each thread
-static struct context thread_contexts[MAX_UTHREADS];
+// // Global array to store the context of each thread
+// static struct context thread_contexts[MAX_UTHREADS];
 
-// Global array to store the priority of each thread
-static enum sched_priority thread_priorities[MAX_UTHREADS];
+// // Global array to store the priority of each thread
+// static enum sched_priority thread_priorities[MAX_UTHREADS];
 
 static int firstTime = 1;
+static int firstInit = 1;
 
 void initTable(void)
 {
-    if (firstTime)
+    if (firstInit)
     {
         for (int i = 0; i < MAX_UTHREADS; i++)
         {
             threads[i].state = FREE;
+            nums[i] = 0;
         }
         current_thread = malloc(sizeof(threads));
-        firstTime = 0;
+        firstInit = 0;
     }
 }
-int getMaxRunnablePriority(void)
+int getMinRunnablePriority(int priority)
 {
-    int pos = -1;
-    int med, i;
-    for (i = 0; i < MAX_UTHREADS; i++)
+    int min = 1000000;
+    int idx = -1;
+    for (int i = 0; i < MAX_UTHREADS; i++)
     {
-        if (threads[i].state == RUNNABLE && &threads[i] != current_thread)
+        if (threads[i].state == RUNNABLE && threads[i].priority == priority && nums[i] < min)
+        {
+            min = nums[i];
+            idx = i;
+        }
+    }
+    return idx;
+}
+int getMaxPriority(void)
+{
+    int med = 0;
+    for (int i = 0; i < MAX_UTHREADS; i++)
+    {
+        if (threads[i].state == RUNNABLE)
         {
             if (threads[i].priority == HIGH)
             {
-                return i;
+                return 2;
             }
-            else if (threads[i].priority == MEDIUM)
+            if (threads[i].priority == MEDIUM)
             {
                 med = 1;
-                pos = i;
-            }
-            if (!med)
-            {
-                pos = i;
             }
         }
     }
-    return pos;
+    return med;
+}
+int getMaxRunnablePriority(void)
+{
+    int maxPriority = getMaxPriority();
+    int pos = -1;
+    switch (maxPriority)
+    {
+    case 0:
+        pos = getMinRunnablePriority(0);
+        if (pos == -1)
+        {
+            return pos;
+        }
+        nums[pos]++;
+        return pos;
+        break;
+    case 1:
+        pos = getMinRunnablePriority(1);
+        if (pos == -1)
+        {
+            return pos;
+        }
+        nums[pos]++;
+        return pos;
+        break;
+    case 2:
+        pos = getMinRunnablePriority(2);
+        if (pos == -1)
+        {
+            return pos;
+        }
+        nums[pos]++;
+        return pos;
+        break;
+    default:
+        return pos;
+        break;
+    }
+    // int pos = -1;
+    // int med = 0;
+    // int i;
+    // for (i = 0; i < MAX_UTHREADS; i++)
+    // {
+    //     if (threads[i].state == RUNNABLE)
+    //     {
+    //         if (threads[i].priority == HIGH)
+    //         {
+    //             return i;
+    //         }
+    //         else if (threads[i].priority == MEDIUM)
+    //         {
+    //             med = 1;
+    //             pos = i;
+    //         }
+    //         else if (!med && threads[i].priority == LOW)
+    //         {
+    //             pos = i;
+    //         }
+    //     }
+    // }
+    // return pos;
 }
 
 int uthread_create(void (*start_func)(), enum sched_priority priority)
@@ -65,16 +146,16 @@ int uthread_create(void (*start_func)(), enum sched_priority priority)
         {
             // initialize the new thread
             threads[i].priority = priority;
-
+            memset(&threads[i].context, 0, sizeof(threads[i].context));
             // set the stack pointer to the top of the stack
             threads[i].context.sp = (uint64)&threads[i].ustack[STACK_SIZE];
 
             // set the return address to the thread exit function
-            threads[i].context.ra = (uint64)&uthread_exit;
+            threads[i].context.ra = (uint64)start_func;
 
             // set the start function as the next instruction to be executed
-            threads[i].context.sp -= sizeof(uint64);
-            *((uint64 *)threads[i].context.sp) = (uint64)start_func;
+            // threads[i].context.sp -= sizeof(uint64);
+            // *((uint64 *)threads[i].context.sp) = (uint64)start_func;
 
             threads[i].state = RUNNABLE;
 
@@ -89,20 +170,10 @@ void uthread_yield()
 
     // find the next highest priority runnable thread
     struct uthread *run;
-    // struct uthread *next_thread;
-    //  int max_priority = 0;
-    //  for (next_thread = threads; next_thread < &threads[MAX_UTHREADS]; next_thread++)
-    //  {
-
-    //     if (next_thread != -1 && next_thread != current_thread && next_thread->priority >= max_priority && next_thread->state == RUNNABLE)
-    //     {
-    //         run = next_thread;
-    //         max_priority = next_thread->priority;
-    //     }
-    // }
+    current_thread->state = RUNNABLE;
     run = &threads[getMaxRunnablePriority()];
     // save the current thread's context and switch to the next thread
-    run->state == RUNNING;
+    run->state = RUNNING;
     current_thread = run;
     uswtch(&current_thread->context, &run->context);
 }
@@ -115,18 +186,10 @@ void uthread_exit()
     if (pos != -1)
     {
         struct uthread *thread_to_run = &threads[pos];
-        // for (i = 0; i < MAX_UTHREADS; i++)
-        // {
-        //     if (thread_states[i] == RUNNING)
-        //     {
-        //         // Find another running thread
-        //         current_thread = i;
-        //         uswtch(&thread_contexts[i], 0); // Switch to the new thread
-        //     }
-        // }
         tmp = current_thread;
         current_thread = thread_to_run;
         thread_to_run->state = RUNNING;
+        tmp->state = FREE;
         uswtch(&tmp->context, &thread_to_run->context);
     }
     exit(0); // If no other running thread found, exit the process
@@ -134,12 +197,17 @@ void uthread_exit()
 
 int uthread_start_all()
 {
-    firstTime = 1;
     if (firstTime)
     {
-        uthread_yield();
-        firstTime = 0;
-        return -1;
+        struct uthread *run;
+        int pos = getMaxRunnablePriority();
+        if (pos != -1)
+        {
+            run = &threads[pos];
+            run->state = RUNNING;
+            firstTime = 0;
+            uswtch(&current_thread->context, &run->context);
+        }
     }
     // if reached to hear this is an error
     return -1;
