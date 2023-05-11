@@ -7,6 +7,7 @@
 #include "kernel/syscall.h"
 #include "kernel/memlayout.h"
 #include "kernel/riscv.h"
+#include "uthread.h"
 
 //
 // Tests xv6 system calls.  usertests without arguments runs them all
@@ -18,14 +19,13 @@
 //
 
 #define BUFSZ ((MAXOPBLOCKS + 2) * BSIZE)
+#define MAX_STACK_SIZE 4000
 
 char buf[BUFSZ];
 
-//
 // Section with tests that run fairly quickly.  Use -q if you want to
 // run just those.  With -q usertests also runs the ones that take a
 // fair of time.
-//
 
 // what if you pass ridiculous pointers to system calls
 // that read user memory with copyin?
@@ -889,10 +889,12 @@ void pipe1(char *s)
 void killstatus(char *s)
 {
   int xst;
-
   for (int i = 0; i < 100; i++)
   {
+
     int pid1 = fork();
+    // printf("numOfChildren: %d\n",numOfChildren);
+
     if (pid1 < 0)
     {
       printf("%s: fork failed\n", s);
@@ -904,11 +906,13 @@ void killstatus(char *s)
       {
         getpid();
       }
+      // printf("left the while?\n");
       exit(0);
     }
     sleep(1);
     kill(pid1);
     wait(&xst);
+
     if (xst != -1)
     {
       printf("%s: status should be -1\n", s);
@@ -2945,6 +2949,103 @@ void badarg(char *s)
   exit(0);
 }
 
+// starting the OS232 Assignment 2 simple tests
+
+volatile enum sched_priority x;
+
+void uthread_a_start_func(void)
+{
+  if (x != MEDIUM)
+  {
+    printf("sched policy failed\n");
+    exit(1);
+  }
+  if (uthread_get_priority() != LOW)
+  {
+    printf("uthread_get_priority failed\n");
+    exit(1);
+  }
+  for (int i = 0; i < 10; i++)
+  {
+    sleep(10); // simulate work
+  }
+  uthread_exit();
+  printf("uthread_exit failed\n");
+  exit(1);
+}
+
+void uthread_b_start_func(void)
+{
+  for (int i = 0; i < 10; i++)
+  {
+    sleep(10); // simulate work
+  }
+  x = uthread_get_priority();
+  uthread_exit();
+  printf("uthread_exit failed\n");
+  exit(1);
+}
+
+void ulttest()
+{
+  x = HIGH;
+  uthread_create(uthread_a_start_func, LOW);
+  uthread_create(uthread_b_start_func, MEDIUM);
+  uthread_start_all();
+  printf("uthread_start_all failed\n");
+  exit(1);
+}
+
+void kthread_start_func(void)
+{
+  // printf("reached here\n");
+  for (int i = 0; i < 10; i++)
+  {
+    sleep(10); // simulate work
+  }
+  // printf("now i will sleep\n");
+  kthread_exit(0);
+  // printf("kthread_exit failed\n");
+  exit(1);
+}
+
+void klttest()
+{
+  uint64 stack_a = (uint64)malloc(MAX_STACK_SIZE);
+  uint64 stack_b = (uint64)malloc(MAX_STACK_SIZE);
+
+  int kt_a = kthread_create((void *(*)())kthread_start_func, stack_a, MAX_STACK_SIZE);
+  if (kt_a <= 0)
+  {
+    printf("kthread_create failed\n");
+    exit(1);
+  }
+  // printf("hey1\n");
+  int kt_b = kthread_create((void *(*)())kthread_start_func, stack_b, MAX_STACK_SIZE);
+  if (kt_a <= 0)
+  {
+    printf("kthread_create failed\n");
+    exit(1);
+  }
+  // printf("hey2\n");
+  int joined = kthread_join(kt_a, 0);
+  if (joined != 0)
+  {
+    printf("kthread_join failed\n");
+    exit(1);
+  }
+
+  joined = kthread_join(kt_b, 0);
+  if (joined != 0)
+  {
+    printf("kthread_join failed\n");
+    exit(1);
+  }
+
+  free((void *)stack_a);
+  free((void *)stack_b);
+}
+
 struct test
 {
   void (*f)(char *);
@@ -3010,6 +3111,8 @@ struct test
     {sbrklast, "sbrklast"},
     {sbrk8000, "sbrk8000"},
     {badarg, "badarg"},
+    {ulttest, "ulttest"},
+    {klttest, "klttest"},
 
     {0, 0},
 };

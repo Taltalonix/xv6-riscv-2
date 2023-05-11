@@ -121,7 +121,7 @@ void freekthread(struct kthread *t)
 }
 
 // 2.3
-int kthread_create(void *(*start_func)(), void *stack, uint stack_size)
+int kthread_create(void *(*start_func)(), uint64 stack, uint stack_size)
 {
   // TODO: Implement 2.3
   int tid;

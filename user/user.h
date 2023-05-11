@@ -23,7 +23,7 @@ char *sbrk(int);
 int sleep(int);
 int uptime(void);
 // Kernel Thread syscalls
-int kthread_create(void *(*start_func)(), void *stack, uint stack_size);
+int kthread_create(void *(*start_func)(), uint64 stack, uint stack_size);
 int kthread_id();
 int kthread_kill(int ktid);
 void kthread_exit(int status);

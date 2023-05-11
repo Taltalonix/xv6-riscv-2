@@ -134,6 +134,12 @@ UPROGS=\
 	$U/_grind\
 	$U/_wc\
 	$U/_zombie\
+	$U/_testkthreadexec\
+	$U/_testkthreadcreate\
+	$U/_testkthreadfork\
+	$U/_testkthreadexit\
+	$U/_testkthreadexitsyscall\
+	$U/_testkthreadkilljoin\
 
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)
